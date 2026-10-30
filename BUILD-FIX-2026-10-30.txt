@@ -1,0 +1,20 @@
+Aegis Client build fix for Minecraft 26.1.2
+
+Root cause of the latest GitHub Actions failure:
+Gradle reported: Could not find method modImplementation() for Fabric Loader.
+For Minecraft 26.1+, Fabric Loom uses the non-remapping plugin. Fabric's official
+26.1 migration guide requires standard Gradle dependency configurations rather
+than the older modImplementation/modCompileOnly/modApi configurations.
+
+Changes in this patch:
+- Root build.gradle uses implementation for Fabric Loader and Fabric API.
+- AppImage-embedded project build.gradle is synchronized with the root build file.
+- Existing GitHub Actions YAML structure is retained. A preflight step now detects
+  obsolete dependency configurations only when they are actual Gradle statements.
+- The workflow has no dependency on a separate ci/prepare-gradle.sh helper.
+
+Build command used by CI:
+gradle --no-daemon --stacktrace clean build
+
+This fixes the reported missing modImplementation configuration. The hosted build
+must still be run to check for subsequent source/API compilation errors.
