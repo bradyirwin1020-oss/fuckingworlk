@@ -84,7 +84,7 @@ public final class AegisClient implements ClientModInitializer {
 
     private static void tick(Minecraft client) {
         // Poll GLFW directly; Minecraft 26.1 renamed its mouse handler and no mixin is needed.
-        ClickTracker.poll(client.getWindow().getWindow(), client.screen == null);
+        ClickTracker.poll(client.getWindow().handle(), client.screen == null);
         while (openMenu.consumeClick()) client.setScreen(new AegisMenuScreen());
 
         if (armorDelay > 0) armorDelay--;
