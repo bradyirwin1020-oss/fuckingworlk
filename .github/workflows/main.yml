@@ -1,0 +1,96 @@
+name: Aegis Client JAR Build
+
+"on":
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aegis-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Aegis for Minecraft 26.1.2
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle 9.8.2
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.8.2'
+
+      - name: Check project files and Minecraft 26.1 build configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Repository directory: $GITHUB_WORKSPACE"
+
+          required_files=(
+            build.gradle
+            settings.gradle
+            gradle.properties
+            src/main/resources/fabric.mod.json
+            src/client/java/com/aegis/client/AegisClient.java
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "ERROR: Required project file is missing: $file" >&2
+              echo "Current directory contents:" >&2
+              find . -maxdepth 4 -type f | sort | head -200 >&2
+              exit 1
+            fi
+          done
+
+          if ! grep -Fq "id 'net.fabricmc.fabric-loom'" build.gradle; then
+            echo "ERROR: build.gradle is not using the Minecraft 26.1+ Fabric Loom plugin." >&2
+            exit 1
+          fi
+
+          if grep -Eq '^[[:space:]]*(modImplementation|modCompileOnly|modApi|remapJar)([[:space:]]|$)' build.gradle; then
+            echo "ERROR: Minecraft 26.1+ uses non-remapping Loom. Replace modImplementation/modCompileOnly/modApi with standard Gradle configurations and use jar instead of remapJar." >&2
+            exit 1
+          fi
+
+          if grep -Eq 'RepositoriesMode\.(FAIL_ON_PROJECT_REPOS|PREFER_SETTINGS)' settings.gradle; then
+            echo "ERROR: settings.gradle contains a repository mode that blocks Fabric Loom's project repositories." >&2
+            echo "Remove dependencyResolutionManagement/repositoriesMode from settings.gradle; keep pluginManagement repositories only." >&2
+            exit 1
+          fi
+
+          if ! grep -Fq 'implementation "net.fabricmc:fabric-loader:' build.gradle; then
+            echo "ERROR: Fabric Loader must use the implementation configuration for Minecraft 26.1+." >&2
+            exit 1
+          fi
+
+          echo "Project layout and Loom dependency configuration look correct."
+
+      - name: Show Java and Gradle versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          java --version
+          gradle --version
+
+      - name: Build Aegis JAR
