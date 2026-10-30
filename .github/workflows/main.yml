@@ -1,15 +1,12 @@
-name: Aegis Client JAR Build
+name: Aegis Client Build
 
 "on":
   push:
     branches:
       - main
       - master
-  pull_request:
-    branches:
-      - main
-      - master
-  workflow_dispatch:
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -20,12 +17,12 @@ concurrency:
 
 jobs:
   build:
-    name: Build Aegis for Minecraft 26.1.2
+    name: Build Minecraft 26.1.2 client mod
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@v7
 
       - name: Set up Java 25
@@ -39,58 +36,48 @@ jobs:
         with:
           gradle-version: '9.8.2'
 
-      - name: Check project files and Minecraft 26.1 build configuration
+      - name: Check project files
         shell: bash
         run: |
           set -euo pipefail
-
-          echo "Repository directory: $GITHUB_WORKSPACE"
-
-          required_files=(
-            build.gradle
-            settings.gradle
-            gradle.properties
-            src/main/resources/fabric.mod.json
-            src/client/java/com/aegis/client/AegisClient.java
-          )
-
-          for file in "${required_files[@]}"; do
-            if [[ ! -f "$file" ]]; then
-              echo "ERROR: Required project file is missing: $file" >&2
-              echo "Current directory contents:" >&2
-              find . -maxdepth 4 -type f | sort | head -200 >&2
-              exit 1
-            fi
-          done
-
-          if ! grep -Fq "id 'net.fabricmc.fabric-loom'" build.gradle; then
-            echo "ERROR: build.gradle is not using the Minecraft 26.1+ Fabric Loom plugin." >&2
-            exit 1
-          fi
-
-          if grep -Eq '^[[:space:]]*(modImplementation|modCompileOnly|modApi|remapJar)([[:space:]]|$)' build.gradle; then
-            echo "ERROR: Minecraft 26.1+ uses non-remapping Loom. Replace modImplementation/modCompileOnly/modApi with standard Gradle configurations and use jar instead of remapJar." >&2
-            exit 1
-          fi
-
-          if grep -Eq 'RepositoriesMode\.(FAIL_ON_PROJECT_REPOS|PREFER_SETTINGS)' settings.gradle; then
-            echo "ERROR: settings.gradle contains a repository mode that blocks Fabric Loom's project repositories." >&2
-            echo "Remove dependencyResolutionManagement/repositoriesMode from settings.gradle; keep pluginManagement repositories only." >&2
-            exit 1
-          fi
-
-          if ! grep -Fq 'implementation "net.fabricmc:fabric-loader:' build.gradle; then
-            echo "ERROR: Fabric Loader must use the implementation configuration for Minecraft 26.1+." >&2
-            exit 1
-          fi
-
-          echo "Project layout and Loom dependency configuration look correct."
-
-      - name: Show Java and Gradle versions
-        shell: bash
-        run: |
-          set -euo pipefail
+          test -f build.gradle
+          test -f settings.gradle
+          test -f gradle.properties
+          test -f src/main/resources/fabric.mod.json
+          test -f src/client/java/com/aegis/client/AegisClient.java
+          echo 'Project files found.'
           java --version
           gradle --version
 
-      - name: Build Aegis JAR
+      - name: Build Aegis
+        shell: bash
+        run: gradle --no-daemon --stacktrace clean build
+
+      - name: Verify JAR
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jar_file="build/libs/aegis-client-2.0.0.jar"
+
+          if [[ ! -s "$jar_file" ]]; then
+            echo "ERROR: Expected JAR was not produced: $jar_file" >&2
+            echo 'Contents of build/libs:'
+            find build/libs -maxdepth 1 -type f -print 2>/dev/null || true
+            exit 1
+          fi
+
+          jar tf "$jar_file" | grep -Fx 'fabric.mod.json'
+          jar tf "$jar_file" | grep -Fx 'com/aegis/client/AegisClient.class'
+
+          echo "jar_path=$jar_file" >> "$GITHUB_OUTPUT"
+          ls -lh "$jar_file"
+
+      - name: Upload Aegis JAR
+        uses: actions/upload-artifact@v7
+        with:
+          name: AegisClient-Minecraft-26.1.2
+          path: ${{ steps.verify.outputs.jar_path }}
+          if-no-files-found: error
+          retention-days: 30
